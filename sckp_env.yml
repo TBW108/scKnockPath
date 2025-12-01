@@ -1,0 +1,23 @@
+name: sckp
+channels:
+    - conda-forge
+    - defaults
+dependencies:
+    - python=3.11
+    - anndata=0.10.7
+    - scanpy=1.10.1
+    - scipy<1.15
+    - pandas
+    - numpy
+    - matplotlib
+    - seaborn
+    - leidenalg
+    - jupyter
+    - pip
+    - pip:
+          - knockpy
+          - knockoffspy
+          - gseapy
+          - matplotlib-venn
+          - scikit-learn
+          - groupyr
