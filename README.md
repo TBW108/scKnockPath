@@ -7,13 +7,13 @@ A statistical model to find differential pathways that are conditionally correla
 ## 2. Preprocess the Dataset
 For the quality-controlled gene count matrix, we sequentially applied 
 `scanpy.pp.log1p()` and `scanpy.pp.normalize\_total()` to obtain 
-normalized expression values. We then identified the top $G$ highly variable genes 
+normalized expression values. We then identified the top $G$ (2000 in default) highly variable genes 
 using `scanpy.pp.highly\_variable\_genes()` and extracted their expression 
 profiles.
 
 ## 2. Run the scKnockPath to Identify Pathways
-Prepare the `.h5ad` scRNA-seq dataset and `.gmt` pathway database in the folder `.gmt`
-In the commandline, run the following example code
+Prepare the `.h5ad` scRNA-seq dataset and `.gmt` pathway database in the folder `./data`.
+In the commandline, run the following example code to obtain the results:
 ```
 python ./test/real_exp/scKnockPath_run.py \
             --adata ./data/T1D/processed_hpap.h5ad \
