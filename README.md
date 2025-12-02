@@ -14,6 +14,8 @@ normalized expression values. We then identified the top $G$ (2000 in default) h
 using `scanpy.pp.highly_variable_genes()` and extracted their expression
 profiles.
 
+The two real scRNA-seq datasets come from https://www.gaultonlab.org/pages/Islet_expression_HPAP/ and https://data.humancellatlas.org/hca-bio-networks/lung/atlases/lung-v1-0. After preprocessing by `preprocess_hpap.ipynb` and `preprocess_hlca.ipynb`, the `processed_hpap.h5ad` and `lung_cov_norm.h5ad` are obtained for downstream pathway analysis.
+
 ## 2. Run the scKnockPath to Identify Pathways
 
 Prepare the `.h5ad` scRNA-seq dataset and `.gmt` pathway database in the folder `./data`.
