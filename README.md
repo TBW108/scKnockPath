@@ -35,7 +35,7 @@ python ./test/real_exp/scKnockPath_run.py \
 
 The model is saved as a `.pkl` file and you can upload it using 'pickle' package.
 
-```bash
+```python 3
 cell_type="Beta"
 with open(f'results/real_exp/processed_hpap/scKnockPath_results/scKnockPath_ND_AAB+_{cell_type}.pkl', 'rb') as f:
         model = pickle.load(f)
