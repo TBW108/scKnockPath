@@ -159,6 +159,8 @@ class scKnockPath:
                     X_train, X_test = Xc[train_index], Xc[test_index]
                     y_train, y_test = y[train_index], y[test_index]
                     sgl_model.fit(X_train, y_train)
+                    if not hasattr(sgl_model, 'classes_'):
+                        sgl_model.classes_ = np.unique(y_train)
                     scores.append(sgl_model.score(X_test, y_test))
                 print(f"KFold CV mean score: {np.mean(scores):.4f}")
                 score=np.mean(scores)

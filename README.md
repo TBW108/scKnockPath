@@ -3,8 +3,11 @@
 A statistical model to find differential pathways that are conditionally correlated with target phenotypes by deconfounding the effect of overlapping genes with FDR control. This framework requires the scRNA-seq data preprocessed by scanpy, target FDR and .gmt pathway database file as input and outputs a ranked list of pathways.
 
 ## 1. Create the Enviroment
-
+Run the following code to prepare the enviroment:
 `conda env create -f sckp_env.yml`
+
+If it fails, run the following code:
+`CFLAGS="-std=c99" conda env create -f sckp_env.yml`
 
 ## 2. Preprocess the Dataset
 
