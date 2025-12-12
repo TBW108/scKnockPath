@@ -8,29 +8,17 @@ import sys
 from groupyr import LogisticSGL
 from collections import OrderedDict
 import matplotlib.pyplot as plt
-import os
 from sklearn.preprocessing import StandardScaler
-import scanpy as sc
 import gseapy as gp
 from sklearn.model_selection import KFold
 
 class scKnockPath:
     def __init__(self,) -> None:
-        '''
-        Get the group information
-        parameters:
-            - fdr: the fdr needed to be controled
-        '''
         pass
     
     def get_pathways_dict(self,file_name):
         '''
-        Get the group matrix from the file
-        param:
-            - file_name: json file in the MsigDB
-            
-        return:
-            - pathway_matrix: the df of bools whose rows are pathways and cols are genes
+        read geneset file and return a dict
         '''
         if file_name.endswith('.json'):
             geneset_dict=dict()
@@ -52,7 +40,9 @@ class scKnockPath:
         return geneset_dict
 
     def filter_genes(self,geneset_dict,X_genenames):
-        # filter genes by thresh and X_genenames
+        '''
+        filter genesets based on gene_thresh and genes in X
+        '''
         filter_genesets=dict()
         for pathway,genes in geneset_dict.items():
             # if the size of the geneset is larger than thresh and genes of it are in adata's genes
@@ -83,15 +73,14 @@ class scKnockPath:
     
     def knockoff_sampler(self,X,Xh,method='sdp'):
         '''
-        get knock off matrix Xk for X
+        get knock off matrix Xk for Xkh
         '''
         print('start generating knock offs')
         # duplicate overlapping genes to generate Xk_h, data structure of the X should be changed
         if method=='sdp':
             X = StandardScaler().fit_transform(X)
             Xh = StandardScaler().fit_transform(Xh)
-            sampler=knockpy.knockoffs.GaussianSampler(X,method=method,max_block=3000,   
-                                                    num_processes=100,)
+            sampler=knockpy.knockoffs.GaussianSampler(X,method=method,max_block=3000, num_processes=100,)
             # Xk=sampler.sample_knockoffs(check_psd=True)
             Xk=sampler.sample_knockoffs()
             print(f'shape of knock off={Xk.shape}')
@@ -160,7 +149,7 @@ class scKnockPath:
         best_score=0
         best_model=None
         if useCV:
-            for i,alpha in enumerate(alphas):
+            for alpha in alphas:
                 print(f'alpha={alpha}')
                 # Use KFold cross-validation to fit Xc and y with the given alpha
                 kf = KFold(n_splits=cv if isinstance(cv, int) else 5, shuffle=True, random_state=42)
@@ -175,7 +164,7 @@ class scKnockPath:
                 score=np.mean(scores)
                 
                 # 第一次开始下降就停止
-                if (score-best_score)<thresh:  
+                if (score-best_score)<thresh and len(sgl_model.chosen_groups_)>0:  
                 # Threshold for early dropping
                     print(f'Early drop at alpha={alpha}, score={score} drops or keeps constant.')
                     self.update_Wg(best_model)
@@ -230,7 +219,6 @@ class scKnockPath:
 
     def select_pathway(self,fdr,offset=0):
         "select pathways based on the T"
-        # select pathways based on the frequency, and the frequency should be loaded for plotting
         Tg=knockpy.knockoff_stats.data_dependent_threshhold(self.Wg,fdr=fdr,offset=offset)
         self.selected_id = self.Wg>=Tg
         
@@ -346,7 +334,7 @@ class scKnockPath:
 
 
             
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
     # preprocess data
     # old_adata=sc.read_h5ad('./data/HCA/lung_disease_filtered.h5ad')
@@ -354,35 +342,35 @@ if __name__ == "__main__":
     # print(adata)
     # adata.write_h5ad(f'./data/HCA/processed_lung_disease_filtered.h5ad')
     
-    adata=sc.read_h5ad('./data/HCA/processed_lung_disease_filtered.h5ad')
-    geneset_path='./data/pathway_db/c2.cp.reactome.v2025.1.Hs.symbols.gmt'
+    # adata=sc.read_h5ad('./data/HCA/processed_lung_disease_filtered.h5ad')
+    # geneset_path='./data/pathway_db/c2.cp.reactome.v2025.1.Hs.symbols.gmt'
 
-    # Initialize model
-    model=scKnockPath()
-    X,Xh,y,groups_list=model.prepare_data(adata=adata,obs_y='disease',
-                                        layer='lognorm',genesets=geneset_path,
-                                        gene_names=adata.var['feature_name'],
-                                        gene_thresh=15)
+    # # Initialize model
+    # model=scKnockPath()
+    # X,Xh,y,groups_list=model.prepare_data(adata=adata,obs_y='disease',
+    #                                     layer='lognorm',genesets=geneset_path,
+    #                                     gene_names=adata.var['feature_name'],
+    #                                     gene_thresh=15)
 
-    # generate knockoff data
-    file_name=f'norm_GMMknockoff3.npz'
-    data_file = os.path.join('./data/HCA', file_name)
-    load=True
-    np.random.seed(42)
-    if load and os.path.exists(data_file):
-        print('loading data')
-        data = np.load(data_file,allow_pickle=True)
-        Xc = data['Xc']
-        y = pd.Series(data['y'])
-    else:
-        print('generating data')
-        Xc,X,Xk = model.knockoff_sampler(X,Xh,method='GMM')
-        np.savez(data_file, Xc=Xc, y=y)
+    # # generate knockoff data
+    # file_name=f'norm_GMMknockoff3.npz'
+    # data_file = os.path.join('./data/HCA', file_name)
+    # load=True
+    # np.random.seed(42)
+    # if load and os.path.exists(data_file):
+    #     print('loading data')
+    #     data = np.load(data_file,allow_pickle=True)
+    #     Xc = data['Xc']
+    #     y = pd.Series(data['y'])
+    # else:
+    #     print('generating data')
+    #     Xc,X,Xk = model.knockoff_sampler(X,Xh,method='GMM')
+    #     np.savez(data_file, Xc=Xc, y=y)
     
 
-    lambdas = np.logspace(-1, -5, num=5)  # Generates log-spaced numbers 
+    # lambdas = np.logspace(-1, -5, num=5)  # Generates log-spaced numbers 
     
-    out=model.fit_lambda(Xc,y,groups_list,lambdas,fdr=0.2,use_knockoff_plus=False)
+    # out=model.fit_lambda(Xc,y,groups_list,lambdas,fdr=0.2,use_knockoff_plus=False)
     
-    print(out)
+    # print(out)
 
