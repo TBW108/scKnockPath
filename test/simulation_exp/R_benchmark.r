@@ -39,7 +39,7 @@ option_list <- list(
         c("--bench_param"),
         type = "character",
         default = NULL,
-        help = "Benchmark axis to vary: overlap, sample, or sparsity , null_overlap, null_sample, null_sparsity",
+        help = "Benchmark axis to vary: overlap, sample, or sparsity , null_overlap, null_sparsity, beta",
         metavar = "character"
     ),
     make_option(
@@ -139,7 +139,6 @@ SCPA_test <- function(example_sce, fdr = 0.2) {
         samples = list(sce0, sce1),
         pathways = pathways,
         parallel = TRUE,
-        downsample = 1500,
         min_genes = 1
     )
 
@@ -166,39 +165,39 @@ seeds <- 46:75
 
 if (opt$bench_param == "overlap") {
     params <- seq(0, 10, by = 2)
-    param_prefix <- "n_overlap"
+    param_prefix <- "n_overlap_"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "overlaplog_seed=", seed, ".h5ad")
     }
 } else if (opt$bench_param == "sample") {
     params <- seq(600, 1800, by = 240)
-    param_prefix <- "n_sample"
+    param_prefix <- "n_sample_"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "sample_seed=", seed, ".h5ad")
     }
 } else if (opt$bench_param == "sparsity") {
     params <- seq(6, 16, by = 2)
-    param_prefix <- "n_sparsity"
+    param_prefix <- "n_sparsity_"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "sparsity_seed=", seed, ".h5ad")
     }
 } else if (opt$bench_param == "null_overlap") {
     params <- seq(0, 10, by = 2)
-    param_prefix <- "n_overlap"
+    param_prefix <- "n_overlap_"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "overlap_null_seed=", seed, ".h5ad")
     }
-} else if (opt$bench_param == "null_sample") {
-    params <- seq(600, 1800, by = 240)
-    param_prefix <- "n_sample"
-    filename_builder <- function(path, param, seed) {
-        paste0(path, "/simu_scRNAseq_100pathways_", param, "sample_null_seed=", seed, ".h5ad")
-    }
 } else if (opt$bench_param == "null_sparsity") {
     params <- seq(6, 16, by = 2)
-    param_prefix <- "n_sparsity"
+    param_prefix <- "n_sparsity_"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "sparsity_null_seed=", seed, ".h5ad")
+    }
+} else if (opt$bench_param == "beta") {
+    params <- c(0, 0.5, 1, 1.5, 2, 3)
+    param_prefix <- ""
+    filename_builder <- function(path, param, seed) {
+        paste0(path, "/simu_scRNAseq_100pathways_beta=", param, "_seed=", seed, ".h5ad")
     }
 } else {
     stop("--bench_param must be one of overlap, sample, or sparsity")
@@ -212,10 +211,13 @@ n_selected_list <- list()
 for (param in params) {
     print(paste0(opt$bench_param, "=", param))
     path <- file.path(
-        "/disk/tanbowen/scKnockPath/data/simulation",
+        "./data/simulation",
         paste0(opt$bench_param, "_data"),
-        paste0(param_prefix, "_beta", param)
+        paste0(param_prefix, "beta", param)
     )
+    if (opt$bench_param == "beta") {
+        path <- paste0("./data/simulation/beta_data/beta=", param)
+    }
     fdr_values <- numeric()
     power_values <- numeric()
     n_selected_values <- numeric()
