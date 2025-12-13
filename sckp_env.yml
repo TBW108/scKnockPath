@@ -1,3 +1,4 @@
+# CFLAGS="-std=c99" conda env create -f sckp_env.yml
 name: sckp
 channels:
     - conda-forge
@@ -15,9 +16,9 @@ dependencies:
     - jupyter
     - pip
     - pip:
-          - knockpy
-          - knockoffspy
-          - gseapy
-          - matplotlib-venn
-          - scikit-learn
-          - groupyr
+        - jlc-choldate
+        - knockpy[fast]
+        - gseapy
+        - matplotlib-venn
+        - scikit-learn
+        - groupyr
