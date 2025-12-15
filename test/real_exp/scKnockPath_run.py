@@ -24,6 +24,7 @@ parser.add_argument('--load_knockoff', type=bool, default=False, help='Whether t
 parser.add_argument('--save_knockoff', type=bool, default=True, help='Whether to save knockoff data (default: True)')
 parser.add_argument('--save_model', type=bool, default=True, help='Whether to save the trained model (default: True)')
 parser.add_argument('--cell_type', type=str,default=None, help='Cell type for analysis')
+parser.add_argument('--knockoff_seed', type=int, default=42, help='Random seed for knockoff generation (default: 42)')
 
 args = parser.parse_args()
 
@@ -54,10 +55,12 @@ X,Xh,y,groups_list=model.prepare_data(adata=adata,obs_y=args.obs_y,
                                       gene_names=args.gene_names,gene_thresh=args.gene_thresh,class1=args.class1,class2=args.class2)
 
 # generate knockoff data
-file_name=f'{args.cell_type}_{args.class2}_vs_{args.class1}_knockoff.npz'
+file_name=f'{args.cell_type}_{args.class2}_vs_{args.class1}_knockoff_seed={args.knockoff_seed}.npz'
+
 data_file = os.path.join(data_folder, file_name)
 load=args.load_knockoff
-np.random.seed(42)
+np.random.seed(args.knockoff_seed)
+
 if load and os.path.exists(data_file):
     print('loading data')
     data = np.load(data_file,allow_pickle=True)
@@ -81,6 +84,6 @@ print(final_pathways)
 
 if args.save_model:
     if args.cell_type is not None:
-        model.save_model(f'{data_folder}/scKnockPath_{args.class1}_{args.class2}_{args.cell_type}.pkl')
+        model.save_model(f'{data_folder}/scKnockPath_{args.class1}_{args.class2}_{args.cell_type}_knockoff_seed={args.knockoff_seed}.pkl')
     else:
-        model.save_model(f'{data_folder}/scKnockPath_{args.class1}_{args.class2}.pkl')
+        model.save_model(f'{data_folder}/scKnockPath_{args.class1}_{args.class2}_knockoff_seed={args.knockoff_seed}.pkl')
