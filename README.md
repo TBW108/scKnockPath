@@ -1,6 +1,6 @@
 # scKnckPath
 
-A statistical model to find differential pathways that are conditionally correlated with target phenotypes by deconfounding the effect of overlapping genes with FDR control. This framework requires the scRNA-seq data preprocessed by scanpy, target FDR and .gmt pathway database file as input and outputs a ranked list of pathways.
+A statistical model to find differential pathways that are conditionally correlated with target phenotypes by deconfounding the effect of overlapping genes with FDR control.
 
 ## 1. Create the Enviroment
 Run the following code to prepare the enviroment:
@@ -25,7 +25,7 @@ The test scripts for simulation experiments and real experiments are included in
 
 ## 2. Run the scKnockPath to Identify Pathways
 
-For your own dataset, prepare the `.h5ad` scRNA-seq dataset and `.gmt` pathway database in the folder `./data`. In the commandline, run the following example code to obtain the results:
+For your own dataset, prepare the `.h5ad` scRNA-seq dataset and `.gmt` pathway database in the folder `./data`. In the commandline, run the following example code to get the differential pathways with FDR under the target level:
 
 ```bash
 python ./test/real_exp/scKnockPath_run.py \
