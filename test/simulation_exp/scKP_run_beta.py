@@ -2,9 +2,29 @@ import os
 import scanpy as sc
 import numpy as np
 import sys
+import pickle as pkl
 # 添加上级目录
 sys.path.append("./model")
 from model_lambda import scKnockPath
+
+def get_fdr_power(selected_pathways, true_effect_pathways, beta_value):
+    if len(selected_pathways) == 0:
+        real_fdr = 0.0
+        if beta_value == 0:
+            real_power = None # beta=0 时应该记录 0 的次数
+        else:
+            real_power = 0
+    else:
+        if beta_value == 0:
+            real_fdr = 1.0
+            real_power = None
+        else:
+            real_fdr = np.logical_not(
+                np.isin(selected_pathways, true_effect_pathways)
+            ).sum() / len(selected_pathways)
+            real_power = np.isin(true_effect_pathways, selected_pathways).sum() / len(true_effect_pathways)
+    return real_fdr, real_power
+
 knockoff_seed = 42
 
 # create a folder to store results
@@ -18,11 +38,19 @@ if not os.path.exists(folder_path):
 beta_values = [0, 0.5, 1, 1.5, 2, 3]
 n_overlap = 4
 seeds = np.arange(46, 76)
-
+fdr = 0.2
 for beta_value in beta_values:
     print(f"beta_value={beta_value}")
     fdrs = []
     powers = []
+
+    # create a folder to store results
+    subfolder_name = f"beta={beta_value}"
+    subfolder_path = os.path.join(folder_path, subfolder_name)
+    if not os.path.exists(subfolder_path):
+        os.makedirs(subfolder_path)
+        print("sub文件夹已创建！")
+        
     for seed in seeds:
         # load data
         adata = sc.read_h5ad(
@@ -60,7 +88,6 @@ for beta_value in beta_values:
             class1=1.0,
             class2=0.0,
         )
-
         load = True
         datafile_name = f"100p_{n_overlap}overlap_knockoffdata_seed={seed}.npz"
         temp_path = f'./results/simulation_exp/scKP_run/n_overlap={n_overlap}'
@@ -80,7 +107,6 @@ for beta_value in beta_values:
         lambdas = np.logspace(-1, -3, num=15)
 
         "alpha one by one test"
-        fdr = 0.2
         model.fit(Xc, y, groups_list, alphas=lambdas,thresh=0.01)
         model.save_model(
             f"{subfolder_path}/100pathways_beta={beta_value}_seed={seed}_lambda.pkl"
@@ -89,22 +115,9 @@ for beta_value in beta_values:
 
         selected_pathways = final_selected_pathways
         # 如果选择的通路为空，beta值也为 0，则 true_effect_pathways 也为空，此时定义 fdr=0 和 power 都为 1. 如果 beta 为非0值，则 power 定义为0，fdr定义为0
-        if selected_pathways is None or len(selected_pathways) == 0:
-            if beta_value == 0:
-                real_fdr = 0.0
-                real_power = 1.0
-            else:
-                real_fdr = 0.0
-                real_power = 0.0
-        else:
-            real_fdr = np.logical_not(
-                np.isin(selected_pathways, true_effect_pathways)
-            ).sum() / len(selected_pathways)
-            
-            real_power = np.isin(true_effect_pathways, selected_pathways).sum() / len(
-                true_effect_pathways
-            )
-            
+        real_fdr, real_power = get_fdr_power(
+            selected_pathways, true_effect_pathways, beta_value
+        )
         print(
             f"target_fdr={fdr}, scKnockPath selected {len(selected_pathways)}pathways"
         )

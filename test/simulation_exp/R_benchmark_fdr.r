@@ -38,7 +38,7 @@ option_list <- list(
     make_option(
         c("--method"),
         type = "character",
-        default = "all",
+        default = "PADOG",
         help = "Which method to analyze (PADOG, CAMERA, SCPA, or all)",
         metavar = "character"
     ),
@@ -86,11 +86,11 @@ camera_test <- function(example_sce, fdr_values) {
         print(paste0("real_fdr=", real_fdrs[i]))
     }
 
-    tibble(
+    return(tibble(
         threshold = fdr_values,
         real_fdr = real_fdrs,
         real_power = real_powers
-    )
+    ))
 }
 
 
@@ -131,11 +131,11 @@ repeat_padog <- function(example_sce, fdr_values) {
         print(paste0("real_power=", real_powers[i]))
     }
 
-    tibble(
+    return(tibble(
         threshold = fdr_values,
         real_fdr = real_fdrs,
         real_power = real_powers
-    )
+    ))
 }
 
 
@@ -155,7 +155,6 @@ SCPA_test <- function(example_sce, fdr_values) {
         samples = list(sce0, sce1),
         pathways = pathways,
         parallel = TRUE,
-        downsample = 1500,
         min_genes = 1
     )
 
@@ -184,28 +183,28 @@ SCPA_test <- function(example_sce, fdr_values) {
         print("-------------------------------------------------")
     }
 
-    tibble(
+    return(tibble(
         threshold = fdr_values,
         real_fdr = real_fdrs,
         real_power = real_powers
-    )
+    ))
 }
 
-seeds <- 46:75
-fdrs <- c(0.01, 0.05, 0.1, 0.15, 0.2, 0.3)
+seeds <- 46:65
+fdrs <- c(0.1, 0.2, 0.3)
 fdr_keys <- as.character(fdrs)
 fdr_list <- setNames(vector("list", length(fdrs)), fdr_keys)
 power_list <- setNames(vector("list", length(fdrs)), fdr_keys)
-n_overlap <- 4
+n_overlap <- 5
 
 for (seed in seeds) {
     print(paste0("seed=", seed))
 
     file_name <- paste0(
-        "/disk/tanbowen/scKnockPath/data/simulation/overlap_data/n_overlap_beta",
+        "data/simulation/overlap_data/overlap=",
         n_overlap,
         "/simu_scRNAseq_100pathways_", n_overlap,
-        "overlaplog_seed=", seed, ".h5ad"
+        "overlap_seed=", seed, ".h5ad"
     )
     example_sce <- readH5AD(file_name, reader = "R", use_hdf5 = FALSE)
 

@@ -7,6 +7,7 @@ suppressPackageStartupMessages({
     library(dplyr)
     library(GSA)
     library(optparse)
+    library(PADOG)
 })
 
 # 定义命令行参数
@@ -54,6 +55,10 @@ option_list <- list(
     make_option(c("--gene_thresh"),
         type = "numeric", default = 15,
         help = "Number of least genes in a pathway", metavar = "number"
+    ),
+    make_option(c("--max_gene_thresh"),
+        type = "numeric", default = 500,
+        help = "Number of most genes in a pathway", metavar = "number"
     )
 )
 
@@ -78,13 +83,66 @@ if (is.null(opt$geneset_path)) {
     stop("Geneset path must be specified")
 }
 
+# 兼容读取 h5ad：优先使用 zellkonverter 的 R reader，失败时回退 python reader
+safe_read_h5ad <- function(path) {
+    message("[readH5AD] Trying reader='R' first for better compatibility...")
+    sce <- tryCatch(
+        {
+            readH5AD(path, reader = "R")
+        },
+        error = function(e) {
+            message("[readH5AD] reader='R' failed: ", conditionMessage(e))
+            NULL
+        }
+    )
+
+    if (!is.null(sce)) {
+        message("[readH5AD] Successfully loaded with reader='R'.")
+        return(sce)
+    }
+
+    message("[readH5AD] Falling back to reader='python'...")
+    sce <- tryCatch(
+        {
+            readH5AD(path, reader = "python")
+        },
+        error = function(e) {
+            msg <- paste0(
+                "Failed to read h5ad with both readers.\n",
+                "R-reader error has been printed above.\n",
+                "Python-reader error: ", conditionMessage(e), "\n\n",
+                "Likely cause: python anndata/h5py version incompatibility (e.g. IOSpec encoding_type='null').\n",
+                "Recommended fixes:\n",
+                "1) Update anndata in the environment used by zellkonverter/basilisk;\n",
+                "2) Or pre-convert the h5ad with a newer scanpy/anndata and re-run."
+            )
+            stop(msg, call. = FALSE)
+        }
+    )
+
+    message("[readH5AD] Successfully loaded with reader='python'.")
+    sce
+}
+
 # methods
 run_padog_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_name, pathways, fdr, gene_thresh) {
     set.seed(123)
 
     if (!is.null(gene_name)) {
-        rownames(example_sce) <- rowData(example_sce)[[gene_name]]
+        if (!gene_name %in% colnames(rowData(example_sce))) {
+            stop(paste0("[PADOG] gene_names column not found in rowData: ", gene_name), call. = FALSE)
+        }
+        rownames(example_sce) <- as.character(rowData(example_sce)[[gene_name]])
     }
+
+    if (is.null(rownames(example_sce))) {
+        stop("[PADOG] rownames(example_sce) is NULL. Please provide --gene_names with gene symbols.", call. = FALSE)
+    }
+
+    # Normalize and deduplicate feature names to maximize overlap with pathways.
+    sce_gene_ids <- trimws(as.character(rownames(example_sce)))
+    sce_gene_ids[is.na(sce_gene_ids) | sce_gene_ids == ""] <- paste0("NA_gene_", seq_len(sum(is.na(sce_gene_ids) | sce_gene_ids == "")))
+    rownames(example_sce) <- make.unique(sce_gene_ids)
 
     if (!is.null(layer)) {
         X <- assays(example_sce)[[layer]]
@@ -97,8 +155,61 @@ run_padog_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_n
         message("[PADOG] Converting assay to dense matrix (may increase memory usage)...")
         X <- as.matrix(X)
     }
+    rownames(X) <- rownames(example_sce)
     print(dim(X))
+    print(y_cls)
 
+    clean_pathways <- lapply(pathways, function(genes) {
+        gs <- trimws(as.character(genes))
+        gs <- gs[!is.na(gs) & gs != ""]
+        unique(gs)
+    })
+
+    filtered_pathways <- lapply(clean_pathways, function(genes) {
+        intersect(genes, rownames(X))
+    })
+    filtered_pathways <- filtered_pathways[sapply(filtered_pathways, length) > gene_thresh & sapply(filtered_pathways, length) < opt$max_gene_thresh]
+
+    overlap_n <- sum(rownames(X) %in% as.character(unlist(filtered_pathways)))
+    message("[PADOG] Overlap genes before case harmonization: ", overlap_n)
+
+    # Common issue: expression uses lower-case and GMT uses upper-case symbols.
+    if (overlap_n <= 10) {
+        x_upper <- toupper(rownames(X))
+        filtered_pathways_upper <- lapply(clean_pathways, function(genes) {
+            intersect(toupper(genes), x_upper)
+        })
+        filtered_pathways_upper <- filtered_pathways_upper[
+            sapply(filtered_pathways_upper, length) > gene_thresh & sapply(filtered_pathways_upper, length) < opt$max_gene_thresh
+        ]
+
+        overlap_upper_n <- sum(x_upper %in% as.character(unlist(filtered_pathways_upper)))
+        message("[PADOG] Overlap genes after case harmonization: ", overlap_upper_n)
+
+        if (overlap_upper_n > overlap_n) {
+            rownames(X) <- x_upper
+            filtered_pathways <- filtered_pathways_upper
+            overlap_n <- overlap_upper_n
+        }
+    }
+
+    if (length(filtered_pathways) == 0) {
+        stop("[PADOG] No pathways left after filtering. Try lowering --gene_thresh or checking gene ID type (symbol vs Ensembl).", call. = FALSE)
+    }
+
+    if (overlap_n <= 10) {
+        stop(
+            paste0(
+                "[PADOG] Too few overlapping genes between expression and pathways (", overlap_n, "). ",
+                "PADOG requires overlap > 10. ",
+                "Please check that --gene_names uses gene symbols matching the GMT file, ",
+                "or use a matching geneset database."
+            ),
+            call. = FALSE
+        )
+    }
+
+    message("[PADOG] Filtered pathways: ", length(filtered_pathways))
 
     cell_type <- recode(colData(example_sce)[[y_cls]], !!c_name := "c", !!d_name := "d")
     cell_type <- factor(cell_type, levels = c("c", "d"))
@@ -107,7 +218,7 @@ run_padog_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_n
     myr <- padog(
         esetm = X,
         group = cell_type,
-        gslist = pathways,
+        gslist = filtered_pathways,
         verbose = FALSE,
         Nmin = gene_thresh,
         NI = 10,
@@ -143,7 +254,7 @@ run_camera_test <- function(example_sce, layer, gene_name, y_cls, c_name, d_name
     filtered_pathways <- lapply(pathways, function(genes) {
         intersect(genes, rownames(example_sce))
     })
-    filtered_pathways <- filtered_pathways[sapply(filtered_pathways, length) > gene_thresh]
+    filtered_pathways <- filtered_pathways[sapply(filtered_pathways, length) > gene_thresh & sapply(filtered_pathways, length) < opt$max_gene_thresh]
     print(paste("Number of filtered pathways:", length(filtered_pathways)))
 
     print(y_cls)
@@ -182,14 +293,14 @@ run_SCPA_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_na
         assay_name = "lognorm",
         meta1 = y_cls, value_meta1 = d_name # 修复：使用d_name而不是sce1_name
     )
-
     scpa_out <- compare_pathways(
         samples = list(sce0, sce1),
         pathways = pathways, # 修复：使用pathways而不是gmt_files
         parallel = TRUE,
         cores = 30,
         min_genes = gene_thresh, # 修复：使用传入的gene_thresh
-        downsample = 3000
+        max_genes = opt$max_gene_thresh,
+        downsample = 1000
     )
 
     selected_pathways <- scpa_out %>%
@@ -220,11 +331,10 @@ run_GSEA_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_na
         intersect(genes, rownames(example_sce))
     })
 
-    filtered_pathways <- filtered_pathways[sapply(filtered_pathways, length) > gene_thresh]
+    filtered_pathways <- filtered_pathways[(sapply(filtered_pathways, length) > gene_thresh) & (sapply(filtered_pathways, length) < opt$max_gene_thresh)]
     print(paste("Number of filtered pathways:", length(filtered_pathways)))
 
-
-    # Calculate signal-to-noise ratio for gene ranking
+    # Calculate log2 fold changes between classes
     class1_cells <- colData(example_sce)[[y_cls]] == c_name
     class2_cells <- colData(example_sce)[[y_cls]] == d_name
 
@@ -245,12 +355,13 @@ run_GSEA_analysis <- function(example_sce, layer, gene_name, y_cls, c_name, d_na
     gene_ranks <- sort(gene_stats, decreasing = TRUE)
 
     print(head(gene_ranks))
+
     # Run GSEA
     fgsea_results <- fgsea(
         pathways = filtered_pathways,
         stats = gene_ranks,
         minSize = gene_thresh,
-        maxSize = 500,
+        maxSize = 100,
         nperm = 1000
     )
     print(head(fgsea_results))
@@ -274,11 +385,19 @@ if (!dir.exists(result_folder)) {
 }
 
 # read data and filter by cell type and disease type if specified
-example_sce <- readH5AD(opt$data_file)
+example_sce <- safe_read_h5ad(opt$data_file)
 if (!is.null(opt$cell_type) && opt$cell_type != "all") {
-    example_sce <- example_sce[, colData(example_sce)$cell_type == opt$cell_type]
+    # 建议也加上 which() 以防 cell_type 列有 NA
+    example_sce <- example_sce[, which(colData(example_sce)$cell_type == opt$cell_type)]
 }
-example_sce <- example_sce[, colData(example_sce)[[opt$y_cls]] == opt$class1 | colData(example_sce)[[opt$y_cls]] == opt$class2]
+print(paste("After cell type filtering:", ncol(example_sce), "cells"))
+
+
+
+# 修改后：使用 %in% 安全地处理 NA
+target_classes <- c(opt$class1, opt$class2)
+keep_cells <- colData(example_sce)[[opt$y_cls]] %in% target_classes
+example_sce <- example_sce[, keep_cells]
 
 colData(example_sce)[[opt$y_cls]] <- droplevels(colData(example_sce)[[opt$y_cls]])
 
@@ -287,7 +406,7 @@ colData(example_sce)[[opt$y_cls]] <- droplevels(colData(example_sce)[[opt$y_cls]
 # main process
 if (method == "CAMERA") {
     library(limma)
-    save_names <- paste0("CAMERA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type, ".csv")
+    save_names <- paste0("CAMERA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type,"_", opt$y_cls, ".csv")
     save_names <- file.path(result_folder, save_names)
 
     # 读取pathway数据
@@ -302,12 +421,14 @@ if (method == "CAMERA") {
 
 if (method == "PADOG") {
     library(PADOG)
-    save_names <- paste0("PADOG_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type, ".csv")
+    save_names <- paste0("PADOG_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type,"_", opt$y_cls, ".csv")
     save_names <- file.path(result_folder, save_names)
 
     # 读取pathway数据
     pathways <- purrr::quietly(GSA.read.gmt)(opt$geneset_path)$result
     all_pathways <- setNames(pathways$genesets, pathways$geneset.names)
+
+    # 去除大于 100 genes 的 pathway
 
 
     selected_pathways <- run_padog_analysis(example_sce, opt$layer, opt$gene_names, opt$y_cls, opt$class1, opt$class2, all_pathways, opt$fdr, opt$gene_thresh)
@@ -318,7 +439,7 @@ if (method == "PADOG") {
 
 if (method == "SCPA") {
     library(SCPA)
-    save_names <- paste0("SCPA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type, ".csv")
+    save_names <- paste0("SCPA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type,"_", opt$y_cls, ".csv")
     save_names <- file.path(result_folder, save_names)
 
     selected_pathways <- run_SCPA_analysis(example_sce, opt$layer, opt$gene_names, opt$y_cls, opt$class1, opt$class2, opt$geneset_path, opt$fdr, opt$gene_thresh)
@@ -329,7 +450,7 @@ if (method == "SCPA") {
 
 if (method == "GSEA") {
     library(fgsea)
-    save_names <- paste0("GSEA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type, ".csv")
+    save_names <- paste0("GSEA_", opt$class2, "_vs_", opt$class1, "_", opt$cell_type,"_", opt$y_cls, ".csv")
     save_names <- file.path(result_folder, save_names)
 
     # 读取pathway数据

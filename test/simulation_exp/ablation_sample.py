@@ -20,11 +20,16 @@ for n_sample in n_samples:
     fdrs=[]
     powers=[]
     for seed in seeds:
-        adata=sc.read_h5ad(f'./data/simulation/sample_data/n_sample_beta{n_sample}/simu_scRNAseq_100pathways_{n_sample}sample_seed={seed}.h5ad')
+        adata=sc.read_h5ad(f'./data/simulation/sample_data/n_sample{n_sample}/simu_scRNAseq_100pathways_{n_sample}sample_seed={seed}.h5ad')
 
-        # # preprocess data
-        # sc.pp.normalize_total(adata)
-        # sc.pp.log1p(adata)
+
+        sc.pp.normalize_total(adata)
+        sc.pp.log1p(adata)
+        adata.obs[obs_y] = adata.obs[obs_y].astype(str)
+
+        class1_val = "1"  # 对应原来的 1.0 或 1
+        class2_val = "0"  # 对应原来的 0.0 或 0
+        
         adata.layers['lognorm']=adata.X.copy()
         true_effect_pathways=adata.uns['effect_pathways']
         geneset_dict=adata.uns['all_pathways']
@@ -47,8 +52,8 @@ for n_sample in n_samples:
             obs_y=obs_y,
             genesets=geneset_dict,
             gene_thresh=gene_thresh,
-            class1=1.0,
-            class2=0.0,
+            class1=class1_val,
+            class2=class2_val,
         )
         Xh = StandardScaler().fit_transform(Xh)
 

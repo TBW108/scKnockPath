@@ -32,20 +32,19 @@ suppressPackageStartupMessages({
 
 
 
-
 # 定义命令行参数
 option_list <- list(
     make_option(
         c("--bench_param"),
         type = "character",
-        default = NULL,
-        help = "Benchmark axis to vary: overlap, sample, or sparsity , null_overlap, null_sparsity, beta",
+        default = "overlap",
+        help = "Benchmark axis to vary: overlap, sample, or sparsity , signal, nosignal",
         metavar = "character"
     ),
     make_option(
         c("--method"),
         type = "character",
-        default = "all",
+        default = "PADOG",
         help = "Which method to analyze (PADOG, CAMERA, SCPA, or all)",
         metavar = "character"
     ),
@@ -108,16 +107,15 @@ repeat_padog <- function(example_sce, fdr = 0.2) {
         parallel = TRUE
     )
 
-    for (fdr in c(fdr)) {
-        print(paste0("fdr=", fdr))
-        print(paste0("select ", length(myr$Name[myr$Ppadog < fdr]), "pathways"))
+    print(paste0("fdr=", fdr))
+    print(paste0("select ", length(myr$Name[myr$Ppadog < fdr]), "pathways"))
 
-        real_fdr <- 1 - sum(myr$Name[myr$Ppadog < fdr] %in% metadata(example_sce)$effect_pathways) / length(myr$Name[myr$Ppadog < fdr])
-        print(paste0("real_fdr=", real_fdr))
+    real_fdr <- 1 - sum(myr$Name[myr$Ppadog < fdr] %in% metadata(example_sce)$effect_pathways) / length(myr$Name[myr$Ppadog < fdr])
+    print(paste0("real_fdr=", real_fdr))
 
-        real_power <- sum(metadata(example_sce)$effect_pathways %in% myr$Name[myr$Ppadog < fdr]) / length(metadata(example_sce)$effect_pathways)
-        print(paste0("real_power=", real_power))
-    }
+    real_power <- sum(metadata(example_sce)$effect_pathways %in% myr$Name[myr$Ppadog < fdr]) / length(metadata(example_sce)$effect_pathways)
+    metadata(example_sce)$effect_pathways
+    print(paste0("real_power=", real_power))
 
     return(c(real_fdr, real_power, length(myr$Name[myr$Ppadog < fdr])))
 }
@@ -161,23 +159,24 @@ SCPA_test <- function(example_sce, fdr = 0.2) {
     return(c(real_fdr, real_power, length(selected_pathways[, 1])))
 }
 
-seeds <- 46:75
+
 
 if (opt$bench_param == "overlap") {
-    params <- seq(0, 10, by = 2)
-    param_prefix <- "n_overlap_"
+    # params <- c(0, 4, 8)
+    params <- c(0, 5, 10)
+    param_prefix <- "overlap"
     filename_builder <- function(path, param, seed) {
-        paste0(path, "/simu_scRNAseq_100pathways_", param, "overlaplog_seed=", seed, ".h5ad")
+        paste0(path, "/simu_scRNAseq_100pathways_", param, "overlap_seed=", seed, ".h5ad")
     }
 } else if (opt$bench_param == "sample") {
-    params <- seq(600, 1800, by = 240)
-    param_prefix <- "n_sample_"
+    params <- c(600, 1200, 1800)
+    param_prefix <- "sample"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "sample_seed=", seed, ".h5ad")
     }
 } else if (opt$bench_param == "sparsity") {
     params <- seq(6, 16, by = 2)
-    param_prefix <- "n_sparsity_"
+    param_prefix <- "n_sparsity"
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_", param, "sparsity_seed=", seed, ".h5ad")
     }
@@ -199,38 +198,55 @@ if (opt$bench_param == "overlap") {
     filename_builder <- function(path, param, seed) {
         paste0(path, "/simu_scRNAseq_100pathways_beta=", param, "_seed=", seed, ".h5ad")
     }
+} else if (opt$bench_param == "signal") {
+    params <- seq(0.4, 0.8, by = 0.2)
+    param_prefix <- "signal"
+    filename_builder <- function(path, param, seed) {
+        paste0(path, "/simu_scRNAseq_100pathways_", param, "signal_seed=", seed, ".h5ad")
+    }
+} else if (opt$bench_param == "nosignal") {
+    params <- c(0)
+    param_prefix <- "signal"
+    filename_builder <- function(path, param, seed) {
+        paste0(path, "/simu_scRNAseq_100pathways_", param, "signal_seed=", seed, ".h5ad")
+    }
 } else {
-    stop("--bench_param must be one of overlap, sample, or sparsity")
+    stop("--bench_param must be one of overlap, sample, or sparsity, signal and nosignal")
 }
 
 fdr_list <- list()
 power_list <- list()
 n_selected_list <- list()
 
-
+seeds <- 46:65
 for (param in params) {
     print(paste0(opt$bench_param, "=", param))
-    path <- file.path(
-        "./data/simulation",
-        paste0(opt$bench_param, "_data"),
-        paste0(param_prefix, "beta", param)
-    )
-    if (opt$bench_param == "beta") {
-        path <- paste0("./data/simulation/beta_data/beta=", param)
+    # path <- file.path(
+    #     "./data/simulation",
+    #     paste0(opt$bench_param, "_data"),
+    #     paste0(param_prefix, "beta", param)
+    # )
+    if (opt$bench_param == "nosignal") {
+        path <- paste0("./data/simulation/signal_data/signal=", param)
+    } else {
+        path <- file.path(
+            paste0("./data/simulation/", opt$bench_param, "_data"),
+            paste0(param_prefix, "=", param)
+        )
     }
+
     fdr_values <- numeric()
     power_values <- numeric()
     n_selected_values <- numeric()
+
     for (seed in seeds) {
         print(paste0("seed=", seed))
-
         file_name <- filename_builder(path, param, seed)
         example_sce <- readH5AD(file_name, reader = "R", use_hdf5 = FALSE)
 
         if (opt$is_lognorm) {
             example_sce <- logNormCounts(example_sce)
         }
-
         if (opt$method == "PADOG") {
             fdr_pow_nselected <- repeat_padog(example_sce, opt$fdr)
         } else if (opt$method == "SCPA") {
@@ -283,3 +299,5 @@ write.csv(
     file.path(results_dir, paste0(opt$method, "_", opt$bench_param, "_n_selected_values.csv")),
     row.names = FALSE
 )
+
+print("Benchmarking completed.")

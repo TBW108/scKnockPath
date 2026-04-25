@@ -46,21 +46,23 @@ def GSEA_test(adata,layer,gs_filepath,gene_names,obs_y,fdr,gene_thresh,save_path
         gene_sets=geneset_dict,
         cls=adata.obs[obs_y],
         permutation_num=1000,
-        method='signal_to_noise',
         min_size=gene_thresh,
-        seed=42
+        seed=42,
     )
     # print(res.res2d)
     result = res.res2d[(res.res2d['FDR q-val'] <= fdr)]['Term']
+    print(result)
     
-    if save_path is not None:
-        pd.DataFrame(result, columns=['Term']).to_csv(save_path, index=False)
-        print(f'GSEA results are saved to {save_path}')
+    
+    resultdf = pd.DataFrame(result.values, columns=['Pathway'])
+    print(resultdf)
+    resultdf.to_csv(save_path, index=False)
+    
+    print(f'GSEA results are saved to {save_path}')
     print(f'There are {len(result)} pathways selected with FDR<={fdr}')
     
     print('-------------------------------------------------------------------')
         
-    
 np.random.seed(42)
 
 # Extract filename prefix from adata path
@@ -85,7 +87,7 @@ adata=adata[(adata.obs[args.obs_y]==args.class2)|(adata.obs[args.obs_y]==args.cl
     
 print(adata.obs[args.obs_y].value_counts())
 
-save_path=f'./results/real_exp/{filename_prefix}/GSEA_results/GSEA_{args.class2}_vs_{args.class1}_{args.cell_type}.csv'
+save_path=f'./results/real_exp/{filename_prefix}/GSEA_results/GSEA_{args.class2}_vs_{args.class1}_{args.cell_type}_{args.obs_y}.csv'
 
 GSEA_test(adata=adata,layer=args.layer,gs_filepath=args.geneset_path,gene_names=args.gene_names, obs_y=args.obs_y,fdr=args.fdr, gene_thresh=args.gene_thresh,save_path=save_path)
 

@@ -70,14 +70,14 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 fdr_values = []
 power_values = []
-fdr_thresholds = [0.01, 0.05, 0.1, 0.15, 0.2, 0.3]
-n_overlap = 4
+fdr_thresholds = [0.1, 0.2, 0.3]
+n_overlap = 5
 
-path = f"./data/simulation/overlap_data/n_overlap_beta{n_overlap}"
-for seed in range(46, 76):
+path = f"./data/simulation/overlap_data/overlap={n_overlap}"
+for seed in range(46, 66):
     print(f"seed={seed}")
     res_df, effect_pathways = run_gsea(
-        f"{path}/simu_scRNAseq_100pathways_{n_overlap}overlaplog_seed={seed}.h5ad"
+        f"{path}/simu_scRNAseq_100pathways_{n_overlap}overlap_seed={seed}.h5ad"
     )
     fdr, power = summarize_fdr(res_df, effect_pathways, fdr_thresholds)
     fdr_values.append(fdr)

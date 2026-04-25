@@ -11,6 +11,12 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import gseapy as gp
 from sklearn.model_selection import KFold
+from joblib import Parallel, delayed
+from sklearn.base import clone
+from sklearn.metrics import log_loss
+import time
+from sklearn.model_selection import GridSearchCV
+
 
 class scKnockPath:
     def __init__(self,) -> None:
@@ -81,15 +87,26 @@ class scKnockPath:
             X = StandardScaler().fit_transform(X)
             Xh = StandardScaler().fit_transform(Xh)
             sampler=knockpy.knockoffs.GaussianSampler(X,method=method,max_block=3000, num_processes=100,)
-            # Xk=sampler.sample_knockoffs(check_psd=True)
             Xk=sampler.sample_knockoffs()
             print(f'shape of knock off={Xk.shape}')
             Xkh,_=self.duplicate_genes(Xk,)
             sys.stdout.flush()
             
-            Xc=np.hstack([Xh,Xkh])
-        
+        elif method=='permutation':
+            print("Using permutation method to generate knockoff data...")
+            X = StandardScaler().fit_transform(X)
+            Xh = StandardScaler().fit_transform(Xh)
             
+            n_samples = X.shape[0]
+            random_labels = np.random.permutation(n_samples)
+            #  生成 knockoff 数据
+            Xk = X[random_labels, :].copy()
+            print(f'shape of knock off={Xk.shape}')
+            Xkh,_=self.duplicate_genes(Xk,)
+            sys.stdout.flush()
+            
+        Xc=np.hstack([Xh,Xkh])
+        
         return Xc,X,Xk
     
     def prepare_data(self,adata,obs_y,genesets,layer=None,gene_thresh=15,gene_names=None,class1=None,class2=None):
@@ -128,13 +145,51 @@ class scKnockPath:
         Xh,groups_list=self.duplicate_genes(X)
         y=np.array(adata.obs[obs_y])
         self.groups_list=groups_list
-        sys.stdout.flush()
+        
         print(f"(After sampling)n_cells={X.shape[0]},n_features={X.shape[1]},n_unfold_features={Xh.shape[1]}, n_pathways={len(self.pathway_dict)}")
+        sys.stdout.flush()
         
         return X,Xh,y,groups_list
+    
+    def get_robust_lambda_path(self,Xc, y, n_alphas=10, eps=0.001):
+        """
+        计算稳健的 Lambda 路径，专门解决 FDR 高的问题。
+        
+        参数:
+        X : (n_samples, n_features) 设计矩阵 (包含原始 + Knockoff)
+        y : (n_samples, ) 0/1 标签
+        eps : lambda_min / lambda_max 的比例。
+            建议设为 0.05 而不是默认的 0.001。
+            eps 越大，路径截断得越早，越能排除尾部噪音。
+        """
+        n_samples = Xc.shape[0]
+        
+        # 2. 计算 Null Model (只含截距) 的预测概率
+        # 对于 Logistic，这就是正样本的比例
+        y = y.astype(float)
+        p_null = np.mean(y)
+        
+        # 3. 计算残差 (Residuals)
+        residuals = y - p_null
+        
+        # 4. 计算 Lambda Max (理论上限)
+        # 公式：特征与残差内积的最大绝对值 / 样本数
+        # 这代表了“最强变量”的初始信号强度
+        grad = np.abs(Xc.T @ residuals)
+        lambda_max = np.max(grad) / n_samples
+        
+        # 5. 计算 Lambda Min (截断点)
+        # 如果您的 FDR 很高，请尝试调大 eps (如 0.05 或 0.1)
+        # 这相当于告诉模型：“太微弱的信号我不要了，只要头部的”
+        lambda_min = lambda_max * eps
+        
+        # 6. 生成对数尺度的路径 (100个点)
+        alphas = np.geomspace(lambda_max, lambda_min, n_alphas)
+        
+        return alphas, lambda_max
 
     
-    def fit(self,Xc,y,groups_list,alphas,useCV=True,cv=5,thresh=0.01):
+    def fit(self,Xc,y,groups_list,cv=None,n_alphas=10,alphas=None,l1_ratio=0.2):
         '''
             repeat the selection
         '''
@@ -146,43 +201,119 @@ class scKnockPath:
         
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        best_score=0
-        best_model=None
-        if useCV:
-            for alpha in alphas:
-                print(f'alpha={alpha}')
-                # Use KFold cross-validation to fit Xc and y with the given alpha
-                kf = KFold(n_splits=cv if isinstance(cv, int) else 5, shuffle=True, random_state=42)
-                scores = []
-                sgl_model = LogisticSGL(l1_ratio=0,groups=total_groups_list,alpha=alpha)
-                for train_index, test_index in kf.split(Xc):
+        best_score = -np.inf
+        best_alpha = None
+        self.sgl_models = []
+        self.cv_scores = []
+        
+        # if alphas is None:
+        #     alphas, max_val = self.get_robust_lambda_path(Xc, y, n_alphas=n_alphas, eps=eps)
+            
+        # 为保证数值稳定，取每个 alpha 的前两位非 0 的小数
+        alphas = np.logspace(-1, -3, num=n_alphas) if alphas is None else alphas
+        alphas = np.array([float(f"{alpha:.2g}") for alpha in alphas])
+        print(f"Path Range: {alphas[0]} -> {alphas[-1]}, n_alphas={len(alphas)}")
+        self.alphas = alphas
+        
+        # grid—search 在评估时使用的是模型的 score 方法，而 LogisticSGL 的 score 方法默认是 accuracy，这可能不适合不平衡数据集。建议在 GridSearchCV 中使用 log_loss 作为评估指标，以更好地反映模型在不平衡数据上的性能。
+        start_time = time.time()
+        if cv is None:
+            
+            print(f'no CV, processing alpha={alphas[0]}')
+            # create the model
+            sgl_model = LogisticSGL(l1_ratio=l1_ratio, groups=total_groups_list, alpha=alphas[0])
+            sgl_model.fit(Xc, y)
+            
+            self.sgl_models.append(sgl_model)
+            self.update_Wg(sgl_model)
+            print('scKnockPath selects',self.select_pathway(fdr=0.2,offset=0))
+
+            sys.stdout.flush()
+            end_time = time.time()
+            print(f"Total time taken: {(end_time - start_time)/60:.2f} minutes")
+            
+        else:
+            # param_grid={'alpha':alphas,
+            #             'l1_ratio':[0,0.1,0.2]
+            # }
+            # gs_cv=GridSearchCV(LogisticSGL(groups=total_groups_list,),param_grid=param_grid,cv=cv,n_jobs=-1,scoring='neg_log_loss')
+            # gs_cv.fit(Xc,y)
+            # Define a custom scorer for negative log loss (since GridSearchCV maximizes the score)
+            # l1_ratios = [0.1, 0.2, 0.3]
+            # neg_log_loss_scorer = make_scorer(log_loss, greater_is_better=False, needs_proba=True)
+
+            # param_grid = {
+            #     'alpha': alphas,
+            #     'l1_ratio': [0.1, 0.2, 0.3]
+            # }
+            # gs_cv = GridSearchCV(
+            #     LogisticSGL(groups=total_groups_list),
+            #     param_grid=param_grid,
+            #     cv=cv,
+            #     n_jobs=-1,
+            #     scoring=neg_log_loss_scorer
+            # )
+            # gs_cv.fit(Xc, y)
+            
+            # best_model=gs_cv.best_estimator_
+
+            # find the best alpha and l1_ratio
+            results = []
+            # Prepare KFold splits once for reproducibility
+            kf = KFold(n_splits=cv, shuffle=True, random_state=42)
+            splits = list(kf.split(Xc))
+            # l1_ratio=0.05
+            def fit_cv(alpha):
+                # For each fold, fit and score
+                fold_scores = []
+                for train_index, test_index in splits:
+                    model = LogisticSGL(l1_ratio=l1_ratio, groups=total_groups_list, alpha=alpha, warm_start=True)
                     X_train, X_test = Xc[train_index], Xc[test_index]
                     y_train, y_test = y[train_index], y[test_index]
-                    sgl_model.fit(X_train, y_train)
-                    if not hasattr(sgl_model, 'classes_'):
-                        sgl_model.classes_ = np.unique(y_train)
-                    scores.append(sgl_model.score(X_test, y_test))
-                print(f"KFold CV mean score: {np.mean(scores):.4f}")
-                score=np.mean(scores)
-                
-                # 第一次开始下降就停止
-                if (score-best_score)<thresh and len(sgl_model.chosen_groups_)>0:  
-                # Threshold for early dropping
-                    print(f'Early drop at alpha={alpha}, score={score} drops or keeps constant.')
-                    self.update_Wg(best_model)
-                    break
-                
-                # update the best model and score
-                best_model=sgl_model 
-                best_score=score
-                print("*"*40)
-                
-            # test if there are pathways are selected   
-            best_model.fit(Xc,y)
+                    model.fit(X_train, y_train)
+                    if not hasattr(model, 'classes_'):
+                        model.classes_ = np.unique(y_train)
+                    y_pred_proba = model.predict_proba(X_test)
+                    fold_scores.append(-log_loss(y_test, y_pred_proba))
+                mean_score = np.mean(fold_scores)
+                return {
+                    'alpha': alpha,
+                    'mean_score': mean_score,
+                    'fold_scores': fold_scores
+                }
+
+            # Run all (l1_ratio, alpha) combinations in parallel
+            # param_grid = [(l1, a) for l1 in l1_ratios for a in alphas]
+            parallel_results = Parallel(n_jobs=-1)(
+                delayed(fit_cv)(alpha) for alpha in alphas
+            )
+
+            # Find the best combination
+            best_result = max(parallel_results, key=lambda x: x['mean_score'])
+            best_l1_ratio = l1_ratio  # Fixed l1_ratio since it's not part of the grid search
+            best_alpha = best_result['alpha']
+            best_score = best_result['mean_score']
+
+            print(f'Best l1_ratio: {best_l1_ratio}, Best Alpha: {best_alpha}, CV Mean Score: {best_score:.4f}')
+
+            # Fit the best model on the whole data
+            best_model = LogisticSGL(l1_ratio=best_l1_ratio, groups=total_groups_list, alpha=best_alpha, warm_start=True)
+            best_model.fit(Xc, y)
+
             self.update_Wg(best_model)
-            # selected_pathways=self.select_pathway(fdr=fdr,offset=0)
-            # print(f'scKnockPath selects {len(selected_pathways)} pathways')
-            # print(selected_pathways) 
+            print('scKnockPath selects',self.select_pathway(fdr=0.2,offset=0))
+            end_time = time.time()
+            print(f"Total time taken: {(end_time - start_time)/60:.2f} minutes")
+
+    def fit_W(self,Xc,y,groups_list):
+        Xh=Xc[:,:Xc.shape[1]//2]
+        Xhk=Xc[:,Xc.shape[1]//2:]
+        Wh=np.abs(Xh.T.dot(y - y.mean())) - np.abs(Xhk.T.dot(y - y.mean()))# 每个基因的 W 统计量
+        
+        self.Wg=np.zeros(len(groups_list))
+        # 每一个 pathway都有一个 Wg，计算方式是 pathway 内基因的 W 的平均值
+        for i,group in enumerate(groups_list):
+            self.Wg[i]=Wh[group].mean()
 
     def update_Wg(self,sgl_model):
         # get betas, Wg
@@ -193,14 +324,13 @@ class scKnockPath:
         for i,group in enumerate(self.groups_list):
             Z[i]=np.abs(sgl_model.coef_[group]).sum()/group.shape[0]
             Zk[i]=np.abs(sgl_model.coef_[group+self.unfold_length]).sum()/group.shape[0]
-            Wg[i] = np.sign(Z[i] - Zk[i]) * max(Z[i], Zk[i])
+            Wg[i] = np.sign(Z[i] - Zk[i]) * (Z[i]-Zk[i])
             sys.stdout.flush()
-            # record Wg every time and frequency of pathways selected
-            self.Z=Z
-            self.Zk=Zk
-            self.Wg=Wg
-            self.beta=sgl_model.coef_
-        
+        self.Z=Z
+        self.Zk=Zk
+        self.Wg=Wg
+        self.beta=sgl_model.coef_
+    
     def save_model(self,file_name):
         with open(file_name, 'wb') as f:
             pickle.dump(self, f)
@@ -221,8 +351,8 @@ class scKnockPath:
 
     def select_pathway(self,fdr,offset=0):
         "select pathways based on the T"
-        Tg=knockpy.knockoff_stats.data_dependent_threshhold(self.Wg,fdr=fdr,offset=offset)
-        self.selected_id = self.Wg>=Tg
+        self.Tg=knockpy.knockoff_stats.data_dependent_threshhold(self.Wg,fdr=fdr,offset=offset)
+        self.selected_id = self.Wg>=self.Tg
         
         # print(f'Select {np.sum(self.selected_id)} pathways')
         self.pathway_names=np.array(self.pathway_names)
@@ -243,6 +373,7 @@ class scKnockPath:
         
         self.overlap_gene_dict=overlap_gene_dict
         return self.overlap_gene_dict
+    
     
     def find_gene_effect(self,gene=None,pathway=None):
         '''
@@ -284,6 +415,12 @@ class scKnockPath:
                 'pathway_effect':pathway_effect})
         
         return df
+    
+    def load_model(self,file_name):
+        with open(file_name, 'rb') as f:
+            loaded_model = pickle.load(f)
+        self.__dict__.update(loaded_model.__dict__)
+        print('load success')
     
     def plot_JImat(self,sig_pathways,geneset_dict=None,show_text=False,show_axes=False,axes_size=10,plot=False,cmap='Reds',JI_th=-0.1,x_ticks=None):
         
