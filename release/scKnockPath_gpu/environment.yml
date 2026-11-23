@@ -1,0 +1,13 @@
+name: sckp-gpu
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip
+  - c-compiler
+  - cxx-compiler
+  - pip:
+      - -r requirements.txt
+variables:
+  PYTHONNOUSERSITE: "1"

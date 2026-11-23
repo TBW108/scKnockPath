@@ -1,0 +1,15 @@
+# User-supplied/generated data and run products
+/data/
+/results/
+*.h5ad
+*.h5
+*.rds
+*.RData
+*.npz
+*.npy
+*.pkl
+*.log
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.env

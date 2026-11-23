@@ -1,0 +1,58 @@
+[
+  {
+    "source": "model/model_gpu.py",
+    "target": "model/model_gpu.py",
+    "sha256": "40c638b490bc910c59db7a1acdf23ebabe151e99e47e92deaae3dcd9a004fde4",
+    "change": "none",
+    "release_sha256": "40c638b490bc910c59db7a1acdf23ebabe151e99e47e92deaae3dcd9a004fde4"
+  },
+  {
+    "source": "model/model_lambda.py",
+    "target": "model/model_lambda.py",
+    "sha256": "dc2b9ac87eba2c1570448ac76703bc5a1c6aa8acf2316e87cfe94141a462ebe7",
+    "change": "none",
+    "release_sha256": "dc2b9ac87eba2c1570448ac76703bc5a1c6aa8acf2316e87cfe94141a462ebe7"
+  },
+  {
+    "source": "data/simulation/revision/gen_overlap_own.r",
+    "target": "simulation/gen_overlap_own.r",
+    "source_sha256": "3a0ce09e4e95266c7672c6a57e34bfdd6c5ebc296478635bd802822c084f9b80",
+    "change": "configurable output root and argument count check only",
+    "release_sha256": "2436ba635717d7a374c9acd3fd1614b6fb0ff7511b1092953b63cc3f5863305c"
+  },
+  {
+    "source": "data/simulation/revision/gen_sample_own.r",
+    "target": "simulation/gen_sample_own.r",
+    "source_sha256": "a95f04fc420e150a101a3032d7f3891d9e49f20e433b9d18554cc2dab301300f",
+    "change": "configurable output root and argument count check only",
+    "release_sha256": "9ee5647f0812067ad294d13cff008703a8606c23d47d036b11f5e4f39d8dfeb6"
+  },
+  {
+    "source": "data/simulation/revision/gen_signal_own.r",
+    "target": "simulation/gen_signal_own.r",
+    "source_sha256": "22cb3c54860131cb365fb822dc4405e6300b2a60a11a41edb46f8497adb76dd8",
+    "change": "configurable output root and argument count check only",
+    "release_sha256": "25123e17f1c610b8eeda630d5b4e74fe8423e95e7877c3612be9d13f463b7f3b"
+  },
+  {
+    "source": "revision/manuscript_v2/PDF/overview_23.pdf",
+    "target": "docs/assets/overview.png",
+    "sha256": "80c4edca7007dd281646ea7ce06efabec53f27a1c22c1101a7e7dc22929a7b85",
+    "change": "PDF rendered to PNG at 2200px longest edge; no PDF distributed",
+    "release_sha256": "de3098864c252cdc00b1c57fc8f4718f11cb45b5e02be2f1957072c334cf2952"
+  },
+  {
+    "source": "revision/manuscript_v2/PDF/simulation_a03.pdf",
+    "target": "docs/assets/fig2.png",
+    "sha256": "2140c5ac9edc051692ac0214da4cd08c555de77d1af1b337e9490d670fe67fac",
+    "change": "PDF rendered to PNG at 2200px longest edge; no PDF distributed",
+    "release_sha256": "1e950669efa9301ac5505bd3a8299aeafa566ef2890cbdfd5d9b4f96e18425a2"
+  },
+  {
+    "source": "data/simulation/revision/gen_overlap.r",
+    "target": "simulation/gen_overlap.r",
+    "source_sha256": "cf438bedc7f743063db48474ac01b2a64bc7e3b18a75f5bad859aa09b5b5f634",
+    "change": "configurable output root and argument count check only",
+    "release_sha256": "f747fa86c2b699765aa503565ae676448d311e135911dd2578faf78f5dfb2d85"
+  }
+]
